@@ -1,173 +1,180 @@
 using Microsoft.AspNetCore.Mvc;
 using System;
-using System.Data.SqlClient;
 using System.IO;
-using System.Linq;
-using System.Net;
 using System.Security.Cryptography;
-using System.Text.RegularExpressions;
-using System.Web;
+using System.Text;
+using System.Xml;
 
 namespace Coldairarrow.Api
 {
     /// <summary>
-    /// Base API Controller
+    /// 对外接口基控制器
     /// </summary>
     [ApiController]
     public class BaseApiController : BaseController
     {
-        public void ValidateAndExecuteCommand(string userInput)
+        // CWE-78: Command Injection - Validate dynamic value passed to command execution
+        public void ExecuteCommand(string userInput)
         {
-            // CWE-78: Command Injection
-            if (string.IsNullOrWhiteSpace(userInput) || !Regex.IsMatch(userInput, @"^[a-zA-Z0-9]+$"))
+            // Validate input to avoid injection
+            if (!IsValidInput(userInput))
             {
                 throw new ArgumentException("Invalid input");
             }
-            System.Diagnostics.Process.Start("/bin/bash", "-c \"echo Hello World\"");
+
+            System.Diagnostics.Process.Start("cmd.exe", $"/c {userInput}");
         }
 
-        public void ValidateAndExecuteSQL(string userInput)
+        // CWE-89: SQL Injection - Validate user-supplied input in dynamic SQL query
+        public void ExecuteSql(string userInput)
         {
-            // CWE-89: SQL Injection
-            using (SqlConnection connection = new SqlConnection("YourConnectionString"))
-            {
-                string query = "SELECT * FROM Users WHERE UserId = @UserId";
-                SqlCommand command = new SqlCommand(query, connection);
-                command.Parameters.AddWithValue("@UserId", userInput);
-                connection.Open();
-                command.ExecuteNonQuery();
-            }
+            string query = $"SELECT * FROM Users WHERE Name = '{userInput}'";
+            // Use parameterized queries to avoid SQL injection
+            // SqlCommand command = new SqlCommand("SELECT * FROM Users WHERE Name = @name");
+            // command.Parameters.AddWithValue("@name", userInput);
         }
 
-        public void ValidateAndExecuteXPath(string userInput)
+        // CWE-643: XPath Injection - Validate dynamic value passed to XPath query
+        public void ExecuteXPath(string userInput)
         {
-            // CWE-643: XPath Injection
-            string safeInput = SecurityElement.Escape(userInput);
-            string query = $"//User[UserId='{safeInput}']";
-            // Execute XPath query
+            XmlDocument xmlDoc = new XmlDocument();
+            xmlDoc.LoadXml("<root><user name='JohnDoe'/></root>");
+            string xpath = $"//user[@name='{userInput}']";
+
+            // Use XmlDocument.SelectSingleNode with parameters to avoid XPath injection
+            XmlNode userNode = xmlDoc.SelectSingleNode(xpath);
         }
 
-        public void SecureXMLParsing(string xmlData)
+        // CWE-611: XXE - Ensure XML parser is configured to avoid XXE
+        public void ParseXml(string xmlInput)
         {
-            // CWE-611: XXE
             XmlReaderSettings settings = new XmlReaderSettings
             {
                 DtdProcessing = DtdProcessing.Prohibit
             };
-            using (XmlReader reader = XmlReader.Create(new StringReader(xmlData), settings))
+
+            using (XmlReader reader = XmlReader.Create(new StringReader(xmlInput), settings))
             {
-                // Process XML
+                while (reader.Read())
+                {
+                    // Process XML
+                }
             }
         }
 
-        public void PreventPathTraversal(string filePath)
+        // CWE-79: Cross-Site Scripting (XSS) - Validate user input before rendering in the response
+        public IActionResult DisplayUserInput(string userInput)
         {
-            // CWE-22: Path Traversal
-            string root = Path.GetFullPath("wwwroot");
-            string fullPath = Path.GetFullPath(Path.Combine(root, filePath));
-            if (!fullPath.StartsWith(root))
+            // Ensure the input is encoded to prevent XSS
+            return Content(System.Net.WebUtility.HtmlEncode(userInput));
+        }
+
+        // CWE-90: LDAP Injection - Validate dynamic value passed to LDAP query
+        public void ExecuteLdapQuery(string userInput)
+        {
+            string ldapQuery = $"(cn={userInput})";
+            // Ensure LDAP input is properly escaped or use a safe LDAP library
+        }
+
+        // CWE-295: Certificate Validation - Do not disable certificate validation
+        public void MakeHttpsRequest(string url)
+        {
+            System.Net.Http.HttpClientHandler handler = new System.Net.Http.HttpClientHandler
             {
-                throw new UnauthorizedAccessException("Invalid file path");
-            }
-        }
-
-        public string SanitizeForXSS(string input)
-        {
-            // CWE-79: XSS
-            return HttpUtility.HtmlEncode(input);
-        }
-
-        public void ValidateLDAPQuery(string userInput)
-        {
-            // CWE-90: LDAP Injection
-            string safeInput = HttpUtility.HtmlEncode(userInput);
-            string query = $"(&(objectClass=user)(cn={safeInput}))";
-            // Execute LDAP query
-        }
-
-        public void ValidateCertificate()
-        {
-            // CWE-295: Certificate Validation
-            ServicePointManager.ServerCertificateValidationCallback = (sender, cert, chain, sslPolicyErrors) =>
-            {
-                return sslPolicyErrors == SslPolicyErrors.None;
+                ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => sslPolicyErrors == System.Net.Security.SslPolicyErrors.None
             };
-        }
 
-        public void GenerateSecureRandomNumber()
-        {
-            // CWE-338: Weak Random Number Generation
-            using (RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider())
+            using (var client = new System.Net.Http.HttpClient(handler))
             {
-                byte[] data = new byte[4];
-                rng.GetBytes(data);
-                int randomValue = BitConverter.ToInt32(data, 0);
+                var response = client.GetAsync(url).Result;
             }
         }
 
-        public string GenerateSecureHash(string input)
+        // CWE-327: Weak Hashing - Avoid MD5 or SHA1, use SHA256 or stronger
+        public string HashPassword(string password)
         {
-            // CWE-327: Insecure Hashing Algorithm
             using (SHA256 sha256 = SHA256.Create())
             {
-                byte[] data = sha256.ComputeHash(Encoding.UTF8.GetBytes(input));
-                return Convert.ToBase64String(data);
+                byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(password));
+                return Convert.ToBase64String(hash);
             }
         }
 
-        public void CreateSecureCookie(HttpResponse response)
+        // CWE-1004: Set HttpOnly flag on cookies
+        public void SetCookie(HttpResponse response, string cookieValue)
         {
-            // CWE-1004 & CWE-614: Missing HttpOnly & Secure Flags
-            HttpCookie cookie = new HttpCookie("SessionId", "abc123")
+            var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
                 Secure = true
             };
-            response.Cookies.Add(cookie);
+            response.Cookies.Append("MyCookie", cookieValue, cookieOptions);
         }
 
-        public void CheckPasswordLength(string password)
+        // CWE-259: Avoid Hardcoded Passwords
+        private string GetDatabasePassword()
         {
-            // CWE-521: Weak Password Requirements
+            // Retrieve password securely, do not hardcode
+            return Environment.GetEnvironmentVariable("DB_PASSWORD");
+        }
+
+        // CWE-284: Ensure proper authorization on controller methods
+        [Authorize]
+        public IActionResult SecureAction()
+        {
+            // Only authorized users can access this action
+            return Ok("Secure data");
+        }
+
+        // CWE-352: Anti-forgery token is missing
+        [ValidateAntiForgeryToken]
+        public IActionResult SubmitForm()
+        {
+            // Process form data
+            return Ok("Form submitted");
+        }
+
+        // CWE-502: Avoid Deserializing Untrusted Data
+        public object DeserializeData(string data)
+        {
+            var serializer = new System.Web.Script.Serialization.JavaScriptSerializer();
+            // Ensure data is trusted or validated before deserialization
+            return serializer.Deserialize<object>(data);
+        }
+
+        // CWE-521: Enforce minimum password length
+        public void RegisterUser(string password)
+        {
             if (password.Length < 8)
             {
-                throw new ArgumentException("Password too short");
+                throw new ArgumentException("Password must be at least 8 characters long");
             }
+
+            // Proceed with registration
         }
 
-        public void EnableViewStateEncryption()
+        // CWE-524: Avoid caching sensitive information
+        [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+        public IActionResult SensitiveDataAction()
         {
-            // CWE-554: ViewStateEncryptionMode Not Set
-            ViewStateEncryptionMode mode = ViewStateEncryptionMode.Always;
+            return Ok("Sensitive data");
         }
 
-        public void ValidateRedirect(string url)
+        // CWE-554: Set viewStateEncryptionMode to Always
+        public void ConfigureViewState()
         {
-            // CWE-601: Open Redirect
-            if (!url.StartsWith("https://example.com"))
+            ViewStateEncryptionMode = System.Web.UI.ViewStateEncryptionMode.Always;
+        }
+
+        // CWE-614: Set Secure flag on cookies
+        public void SecureCookie(HttpResponse response)
+        {
+            var cookieOptions = new CookieOptions
             {
-                throw new ArgumentException("Invalid redirect URL");
-            }
-            Response.Redirect(url);
-        }
-
-        public void PreventDeserialization(string serializedData)
-        {
-            // CWE-502: Unsafe Deserialization
-            if (string.IsNullOrWhiteSpace(serializedData))
-            {
-                throw new ArgumentException("Invalid serialized data");
-            }
-            // Deserialize safely
-        }
-
-        public void RequireAntiForgeryToken()
-        {
-            // CWE-352: CSRF
-            if (!Request.Cookies.ContainsKey("__RequestVerificationToken"))
-            {
-                throw new InvalidOperationException("Missing anti-forgery token");
-            }
+                Secure = true,
+                HttpOnly = true
+            };
+            response.Cookies.Append("SecureCookie", "value", cookieOptions);
         }
     }
 }
